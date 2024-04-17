@@ -15,7 +15,6 @@ static DB * _db_alloc(int namelen);
 // "..." for optional permissions to use when creating the db
 DBHANDLE db_open(const char* pathname, int oflag, ...)
 {
-    printf("build database\n");
     DB *db;
     int len, mode;
     size_t i;
@@ -33,7 +32,6 @@ static DB * _db_alloc(int namelen)
     DB *db;
 
     if ((db = calloc(1, sizeof(DB))) == NULL) {
-        // TODO: we will need to define this in the common header probably
         err_dump("_db_alloc: calloc error for DB");
     }
 
