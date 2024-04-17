@@ -1,9 +1,6 @@
 // db.c
 #include "apue_db.h"
-#include <stdio.h>
-#include <string.h>
-#include <fcntl.h>
-#include <stdlib.h>
+#include "apue.h"
 
 #define PTR_SZ 7 /* size of ptr field in hash chain */
 #define NHASH_DEF 137 /* default hash table size, remember it is static hashing */
@@ -13,7 +10,9 @@ typedef struct {
 
 } DB;
 
-// ... for optional permissions to use when creating the db
+static DB * _db_alloc(int namelen);
+
+// "..." for optional permissions to use when creating the db
 DBHANDLE db_open(const char* pathname, int oflag, ...)
 {
     printf("build database\n");
@@ -23,6 +22,8 @@ DBHANDLE db_open(const char* pathname, int oflag, ...)
     char asciiptr[PTR_SZ + 1], hash[(NHASH_DEF + 1) * PTR_SZ + 2];  // + 2 for \n and null
 
     len = strlen(pathname);
+
+    db = _db_alloc(len);
 
     return NULL;
 }
@@ -35,4 +36,6 @@ static DB * _db_alloc(int namelen)
         // TODO: we will need to define this in the common header probably
         err_dump("_db_alloc: calloc error for DB");
     }
+
+    return db;
 }
