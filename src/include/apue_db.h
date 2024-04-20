@@ -13,4 +13,10 @@ typedef void * DBHANDLE;
 // the char represents the path, the int represents the open mode
 DBHANDLE db_open(const char *, int, ...);
 
+/* implementation limits */
+#define IDXLEN_MIN 6    /* key, separator, start, separator, length, \n */
+#define IDXLEN_MAX 1024 /* arbitrary */
+#define DATLEN_MIN 2    /* data byte, newline */
+#define DATLEN_MAX 1024 /* arbitrary */
+
 #endif
