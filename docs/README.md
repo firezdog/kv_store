@@ -87,7 +87,3 @@ Advanced Unix Programming Ch. 20
 # Online Resource
 * https://github.com/roktas/apue2e/blob/master/db/apue_db.h
     * source code and makefile for this book
-
-# Abandoned
-
-I feel like the setup / intricacies of managing all the system calls outweight whatever I'm learning about DB by doing this, so I am abandoning this project.
