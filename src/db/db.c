@@ -73,10 +73,49 @@ DBHANDLE db_open(const char* pathname, int oflag, ...)
         process A opens db and is interrupted
         process B opens db, initializes, and writes a record
         process A initializes and the record is lost
+
+        this implements a "first write wins" (??) policy for opening db --
+            if A and B come in and B opens after A, whatever work A did will be erased
+            but if A did no work and B goes and does its work, then when it comes time for A,
+            A will fstat and see the size is not 0, so it will cancel trying to init the db
+
+            "first write wins" -- not sure, because it is the last CREATE that wins
     */
     if ((oflag & (O_CREAT | O_TRUNC)) == (O_CREAT | O_TRUNC)) {
         if (writew_lock(db->idxfd, 0, SEEK_SET, 0) < 0) {
             err_dump("db_open: writew_lock error");
+        }
+
+        if (fstat(db->idxfd, &statbuff) < 0) {
+            err_sys("db_open: fstat error");
+        }
+
+        if (statbuff.st_size == 0) {
+            /* build list of (NHASH_DEF + 1) chain ptrs with value of 0, + 1 is for free list pointer preceding hash table */
+            /* 
+                ensure that asciiptr contains stringified 0 and is prefixed with enough empty characters to fill it 
+                "every pointer string we write to the database occupies exactly PTR_SZ characters"
+                then fill the hash table with pointer strings
+
+                in example, PTR_SZ is set to 4 and NHASH_DEF is set to 3 -- we will be able to address up to offset 9999
+                    in the data file for the 10000 bytes mentioned in the book
+            */
+            sprintf(asciiptr, "%*d", PTR_SZ, 0);
+            hash[0] = 0;
+            for (i = 0; i < NHASH_DEF + 1; i++) {
+                strcat(hash, asciiptr);
+            }
+            strcat(hash, "\n");
+
+            /* actually write the pointer strings into the database file -- ensure that everything is written */
+            i = strlen(hash);
+            if (write(db->idxfd, hash, i) != i) {
+                err_dump("db_open: index file init write error");
+            }
+        }
+
+        if (un_lock(db->idxfd, 0, SEEK_SET, 0) < 0) {
+            err_dump("db_open: error releasing db lock");
         }
     }
 
