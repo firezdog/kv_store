@@ -5,7 +5,7 @@ apue:
 	ar rsv ./build/libapue.a ./build/apue.o
 
 db: apue
-	gcc -L/.build -I./src/include -Wall -g -c ./src/db/db.c -o ./build/db.o -lapue
+	gcc -I./src/include -Wall -g -c ./src/db/db.c -o ./build/db.o
 	ar rsv ./build/libapue_db.a ./build/db.o
 
 test: db
@@ -14,5 +14,6 @@ test: db
 
 clean:
 	rm -rf build/*
+	rm *.dat *.idx
 
 .PHONY: all clean
