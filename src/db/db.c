@@ -18,10 +18,12 @@ typedef struct {
     char *idxbuf;   // index record buffer
     char *datbuf;   // data record buffer
     off_t hashoff;  // offset in index file of hash table
+    off_t idxoff;   // offset for current record in hash table
     DBHASH nhash;   // current hash table size
 } DB;
 
-static DB * _db_alloc(int namelen);
+static DB * _db_alloc(int);
+static void _db_free(DB *);
 
 // "..." for optional permissions to use when creating the db
 DBHANDLE db_open(const char* pathname, int oflag, ...)
@@ -64,8 +66,7 @@ DBHANDLE db_open(const char* pathname, int oflag, ...)
     }
 
     if (db->idxfd < 0 || db->datfd < 0) {
-        // TODO: create function to free db
-        printf("database should be freed");
+        _db_free(db);
         return NULL;
     }
 
@@ -119,7 +120,31 @@ DBHANDLE db_open(const char* pathname, int oflag, ...)
         }
     }
 
+    db_rewind(db);
     return db;
+}
+
+void db_rewind(DBHANDLE h)
+{
+    DB *db = h; // cast generic pointer to our pointer.
+    size_t offset = (db->nhash + 1) * PTR_SZ + 1;
+
+    if ((db->idxoff = lseek(db->idxfd, offset, SEEK_SET)) == -1) {
+        err_dump("db_rewind: lseek error");
+    }
+}
+
+static void _db_free(DB *db) {
+    /* close the files if they were opened */
+    if (db->idxfd > -1) { close(db->idxfd); }
+    if (db->datfd > -1) { close(db->datfd); }
+
+    /* null checks are not necessary but good practice */
+    if (db->idxbuf != NULL) { free(db->idxbuf); }
+    if (db->datbuf != NULL) { free(db->datbuf); }
+    if (db->name != NULL) { free(db->name); }
+
+    free(db);
 }
 
 /* allocation of DB structure and its buffers */

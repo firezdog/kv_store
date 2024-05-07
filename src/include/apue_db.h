@@ -12,6 +12,7 @@ typedef void * DBHANDLE;
 
 // the char represents the path, the int represents the open mode
 DBHANDLE db_open(const char *, int, ...);
+void db_rewind(DBHANDLE);
 
 /* implementation limits */
 #define IDXLEN_MIN 6    /* key, separator, start, separator, length, \n */

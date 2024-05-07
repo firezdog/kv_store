@@ -87,3 +87,29 @@ Advanced Unix Programming Ch. 20
 # Online Resource
 * https://github.com/roktas/apue2e/blob/master/db/apue_db.h
     * source code and makefile for this book
+
+# Implementation Notes
+
+* db_open
+    * allocate the db
+    * opened with create flag?
+        * yes: open with flag + mode (permissions)
+        * else: open with flag
+    * successfully opened?
+        * yes: continue
+        * no: free and return
+    * initialize if opened with create flag
+        * write lock
+        * get file size
+        * if not yet created (file size == 0)
+            * copy out first row (the hash)
+            * check we copied out all chars
+        * unlock
+    * rewind pointer to start of db
+
+* db_rewind
+    * set db structure's index offset to first index record
+        * this is 
+            * the number of pointers * pointer size 
+            * \+ free list pointer * pointer size 
+            * \+ 1 for newline
