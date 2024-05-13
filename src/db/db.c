@@ -134,6 +134,11 @@ void db_rewind(DBHANDLE h)
     }
 }
 
+void db_close(DBHANDLE h) {
+    DB *db = h;
+    _db_free(db);
+}
+
 static void _db_free(DB *db) {
     /* close the files if they were opened */
     if (db->idxfd > -1) { close(db->idxfd); }
