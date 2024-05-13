@@ -3,6 +3,7 @@
 #include "apue.h"
 #include <fcntl.h>
 #include <stdarg.h>
+#include <errno.h>
 
 #define PTR_SZ 7        /* size of ptr field in hash chain */
 #define NHASH_DEF 137   /* default hash table size, remember it is static hashing */
@@ -137,6 +138,24 @@ void db_rewind(DBHANDLE h)
 void db_close(DBHANDLE h) {
     DB *db = h;
     _db_free(db);
+}
+
+// see page 744
+int db_store(DBHANDLE h, const char *key, const char *data, int flag) {
+    /* validate user request for store op */
+    int valid = (flag == DB_INSERT || flag == DB_REPLACE || flag == DB_STORE);
+    if (!valid) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    /* validate data length (length of data + newline) */
+    int datlen = strlen(data) + 1;
+    if (datlen < DATLEN_MIN || datlen > DATLEN_MAX) {
+        err_dump("db_store: data length out of bounds");
+    }
+
+    return 0;
 }
 
 static void _db_free(DB *db) {

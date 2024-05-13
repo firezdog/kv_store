@@ -14,11 +14,17 @@ typedef void * DBHANDLE;
 DBHANDLE db_open(const char *, int, ...);
 void db_rewind(DBHANDLE);
 void db_close(DBHANDLE);
+int db_store(DBHANDLE, const char *, const char *, int);
 
 /* implementation limits */
 #define IDXLEN_MIN 6    /* key, separator, start, separator, length, \n */
 #define IDXLEN_MAX 1024 /* arbitrary */
 #define DATLEN_MIN 2    /* data byte, newline */
 #define DATLEN_MAX 1024 /* arbitrary */
+
+/* flags for DB store, see p. 754 */
+#define DB_INSERT 1     /* insert new record */
+#define DB_REPLACE 2    /* replace existing record */
+#define DB_STORE 3      /* replace or insert (upsert) */
 
 #endif
