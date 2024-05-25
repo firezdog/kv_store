@@ -12,7 +12,7 @@
 typedef unsigned long DBHASH;   // hash values
 
 // representation of the database
-typedef struct {
+typedef struct DB {
     int idxfd;      // index file descriptor
     int datfd;      // data file descriptor
     char *name;     // db name
@@ -20,11 +20,14 @@ typedef struct {
     char *datbuf;   // data record buffer
     off_t hashoff;  // offset in index file of hash table
     off_t idxoff;   // offset for current record in hash table
+    off_t chainoff; // offset of hash chain for this index record
     DBHASH nhash;   // current hash table size
 } DB;
 
 static DB * _db_alloc(int);
 static void _db_free(DB *);
+static int _db_find_and_lock(DB *, const char *, int);
+static off_t _db_readptr(DB *, off_t);
 
 // "..." for optional permissions to use when creating the db
 DBHANDLE db_open(const char* pathname, int oflag, ...)
@@ -61,9 +64,9 @@ DBHANDLE db_open(const char* pathname, int oflag, ...)
         va_end(ap);
 
         /* open index and data file */
-        db->idxfd = open(db->name, oflag, mode);
+        db->idxfd = open(db->name, oflag | O_EXCL, mode);
         strcpy(db->name + len, ".dat");
-        db->datfd = open(db->name, oflag, mode);
+        db->datfd = open(db->name, oflag | O_EXCL, mode);
     }
 
     if (db->idxfd < 0 || db->datfd < 0) {
@@ -142,6 +145,10 @@ void db_close(DBHANDLE h) {
 
 // see page 744
 int db_store(DBHANDLE h, const char *key, const char *data, int flag) {
+    typedef enum RETURN_CODE {
+        OK, // store succeeded no problem
+    } RETURN_CODE;
+
     /* validate user request for store op */
     int valid = (flag == DB_INSERT || flag == DB_REPLACE || flag == DB_STORE);
     if (!valid) {
@@ -149,10 +156,25 @@ int db_store(DBHANDLE h, const char *key, const char *data, int flag) {
         return -1;
     }
 
+    // TODO: delete
+    if (flag != DB_INSERT) { 
+        errno = EINVAL;
+        err_dump("REPLACE / STORE not implemented");
+    }
+
     /* validate data length (length of data + newline) */
     int datlen = strlen(data) + 1;
     if (datlen < DATLEN_MIN || datlen > DATLEN_MAX) {
+        errno = EINVAL;
         err_dump("db_store: data length out of bounds");
+    }
+
+    DB *db = h;
+    int IS_LOCK = 1;
+    if (_db_find_and_lock(db, key, IS_LOCK) < 0) { /* record not found */
+        // TODO: replace + error handling if we try to replace a nonexistent record
+        // TODO: reuse a free record if available
+        off_t ptrval = _db_readptr(db, db->chainoff);
     }
 
     return 0;
@@ -169,6 +191,16 @@ static void _db_free(DB *db) {
     if (db->name != NULL) { free(db->name); }
 
     free(db);
+}
+
+static int _db_find_and_lock(DB *db, const char *key, int is_lock)
+{
+    return 0;
+}
+
+static off_t _db_readptr(DB * db, off_t offset)
+{
+    return 0;
 }
 
 /* allocation of DB structure and its buffers */

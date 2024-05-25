@@ -113,3 +113,34 @@ Advanced Unix Programming Ch. 20
             * the number of pointers * pointer size 
             * \+ free list pointer * pointer size 
             * \+ 1 for newline
+
+* db_store
+    * inputs: db handle, key + data, flag (insert, replace, store)
+        * i think replace is update and insert is put, store is upsert that covers both cases
+    * validate flag, validate data length
+    * determine where the data item goes in the hash table, change the table entry (put new entry at head)
+        * _db_find_and_lock
+            * need to write lock the hash chain when updating (specified via flag)
+            * returns -1 if there is an error
+            * side effect -- sets db->chainoff to the place this record should be
+        * if we don't find the entry and we wanted to update, return an error
+            * we also record the number of store errors associated with the db for some reason
+        * otherwise
+            * get to first index on hash chain
+            * find a free empty record
+                * if we can't, record goes to the end ? -- but doesn't this ruin the hashing scheme??
+                    * no, the hash chain marks where it is, we just optimize by looking for a free record b/f we append
+                    * ^ remember that the hash chain is just telling us where we go to in what amounts to a log
+                * otherwise, record replaces the existing record, and that goes to front of hash chain
+                    * so it's ordered by most recent mod?
+            * use of _db_writedat, _db_writeidx, _db_writeptr
+            * analytics (cnt_stor2, errors, etc.)
+    * doreturn label: unlocks hash chain at the end of the function
+    * will need to try to simplify by first unwinding the code for a simple insert
+        * i.e. first we will only support put, then we will add update?
+
+* locking race condition on create
+    * currently the way things are set up, two requests to create a db are in a race
+    * a lock is acquired for the initialization during create, but locking requires an fd
+        * lockfile would be the solution
+        * another option: just supplement the request with requirement that the file not exist
