@@ -21,6 +21,7 @@ typedef struct DB {
     off_t hashoff;  // offset in index file of hash table
     off_t idxoff;   // offset for current record in hash table
     off_t chainoff; // offset of hash chain for this index record
+    off_t ptroff;   // chain ptr offset pointing to this idx record
     DBHASH nhash;   // current hash table size
 } DB;
 
@@ -28,6 +29,7 @@ static DB * _db_alloc(int);
 static void _db_free(DB *);
 static int _db_find_and_lock(DB *, const char *, int);
 static off_t _db_readptr(DB *, off_t);
+static DBHASH _db_hash(DB *, const char *);
 
 // "..." for optional permissions to use when creating the db
 DBHANDLE db_open(const char* pathname, int oflag, ...)
@@ -63,13 +65,17 @@ DBHANDLE db_open(const char* pathname, int oflag, ...)
         mode = va_arg(ap, int);
         va_end(ap);
 
-        /* open index and data file */
+        /* open index and data file -- 
+            add O_EXCL flag to avoid opening a database that already exists in truncate mode
+            otherwise the locking that occurs below is useless
+        */
         db->idxfd = open(db->name, oflag | O_EXCL, mode);
         strcpy(db->name + len, ".dat");
         db->datfd = open(db->name, oflag | O_EXCL, mode);
     }
 
     if (db->idxfd < 0 || db->datfd < 0) {
+        if (errno == EEXIST) { fprintf(stderr, "apue_db: error while creating db -- %s already exists\n", pathname); }
         _db_free(db);
         return NULL;
     }
@@ -193,9 +199,37 @@ static void _db_free(DB *db) {
     free(db);
 }
 
-static int _db_find_and_lock(DB *db, const char *key, int is_lock)
-{
+static int _db_find_and_lock(DB *db, const char *key, int is_lock) {
+    /* calculate expected key hash, then look for chain pointer in entry */
+    db->chainoff = (_db_hash(db, key) * PTR_SZ) + db->hashoff;
+
+    /* TODO: lock the first byte of the hash chain -- write lock or read lock depending on flag 
+        CALLER MUST UNLOCK!
+    */
+    if (is_lock) {
+        if (writew_lock(db->idxfd, db->chainoff, SEEK_SET, 1) < 0) {
+            err_dump("_db_find_and_lock: writew_lock error");
+        }
+    } else if (readw_lock(db->idxfd, db->chainoff, SEEK_SET, 1) < 0) {
+        err_dump("_db_find_and_lock: readw_lock error");
+    }
+
+    db->ptroff = db->chainoff;
+    // TODO: loop to update ptroff until we get to correct point in chain
+
     return 0;
+}
+
+static DBHASH _db_hash(DB *db, const char *key) {
+    /* calculate hash as contribution from each char based on index + 1 */
+    DBHASH hash = 0;
+    int len = strlen(key);    
+    for (int i = 0; i < len; i ++) {
+        int contribution = i + 1;
+        hash += (DBHASH) key[i] * contribution;
+    }
+
+    return hash % db->nhash;
 }
 
 static off_t _db_readptr(DB * db, off_t offset)

@@ -1,4 +1,4 @@
-all: apue db test
+all: clean apue db test
 
 apue:
 	gcc -I./src/include -Wall -g -c ./src/apue/apue.c -o ./build/apue.o

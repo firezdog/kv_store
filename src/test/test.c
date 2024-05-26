@@ -5,9 +5,13 @@
 
 int main() {
     DBHANDLE db = db_open("db_name", O_RDWR | O_CREAT | O_TRUNC, FILE_MODE);
-    // printf("%d\n", db_store(db, "hello", "", DB_STORE));
-    if (db != NULL) {
-        db_close(db);
+    if (db == NULL) {
+        fprintf(stderr, "could not create db -- already exists");
+        return -1; 
     }
+
+    db_store(db, "hello", "data", DB_INSERT);
+    db_store(db, "goodbye", "data", DB_INSERT);
+    db_close(db);
     return 0;
 }

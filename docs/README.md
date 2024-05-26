@@ -139,6 +139,21 @@ Advanced Unix Programming Ch. 20
     * will need to try to simplify by first unwinding the code for a simple insert
         * i.e. first we will only support put, then we will add update?
 
+* _db_find_and_lock (db handle, key, lock flag)
+    * used by insert and other methods
+    * find record for a given key
+        * convert key to hash value -- get starting address of hash chain (chainoff)
+        * wait for lock if requested, only lock first byte of hash chain start to increase parallelism
+        * read first pointer in chain -- 0 means empty hash chain
+        * iterate and compare keys, read records until we reach an empty record
+            * at end offset = 0 means we found no key
+            * otherwise ptroff contains address of prev record, datoff of data record, datlen size
+                * helpful to know previous record when deleting
+
+* _db_hash (db handle, key)
+    * multiply each char times 1-index, divide by nhash entries
+        * uses primes for good hash space distribution (see Knuth)
+
 * locking race condition on create
     * currently the way things are set up, two requests to create a db are in a race
     * a lock is acquired for the initialization during create, but locking requires an fd
