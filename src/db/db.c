@@ -179,8 +179,11 @@ int db_store(DBHANDLE h, const char *key, const char *data, int flag) {
     int IS_LOCK = 1;
     if (_db_find_and_lock(db, key, IS_LOCK) < 0) { /* record not found */
         // TODO: replace + error handling if we try to replace a nonexistent record
-        // TODO: reuse a free record if available
+
         off_t ptrval = _db_readptr(db, db->chainoff);
+
+        // TODO: reuse a free record if available
+        // TODO: for now, write the data in the hash-designated location
     }
 
     return 0;
@@ -200,12 +203,12 @@ static void _db_free(DB *db) {
 }
 
 static int _db_find_and_lock(DB *db, const char *key, int is_lock) {
-    /* calculate expected key hash, then look for chain pointer in entry */
-    db->chainoff = (_db_hash(db, key) * PTR_SZ) + db->hashoff;
-
-    /* TODO: lock the first byte of the hash chain -- write lock or read lock depending on flag 
+    /* 
+        calculate expected key hash, then look for chain pointer in entry 
+        lock the first byte of the hash chain -- write lock or read lock depending on flag 
         CALLER MUST UNLOCK!
     */
+    db->chainoff = (_db_hash(db, key) * PTR_SZ) + db->hashoff;
     if (is_lock) {
         if (writew_lock(db->idxfd, db->chainoff, SEEK_SET, 1) < 0) {
             err_dump("_db_find_and_lock: writew_lock error");
@@ -215,16 +218,16 @@ static int _db_find_and_lock(DB *db, const char *key, int is_lock) {
     }
 
     db->ptroff = db->chainoff;
-    // TODO: loop to update ptroff until we get to correct point in chain
+    off_t offset = _db_readptr(db, db->ptroff);
+    // TODO: loop to update ptroff until we get to correct point in chain -- will work for now b/c we didn't write anything yet
 
-    return 0;
+    return offset == 0 ? -1 : 0;
 }
 
 static DBHASH _db_hash(DB *db, const char *key) {
     /* calculate hash as contribution from each char based on index + 1 */
     DBHASH hash = 0;
-    int len = strlen(key);    
-    for (int i = 0; i < len; i ++) {
+    for (int i = 0; key[i] != '\0'; i ++) {
         int contribution = i + 1;
         hash += (DBHASH) key[i] * contribution;
     }
@@ -234,7 +237,20 @@ static DBHASH _db_hash(DB *db, const char *key) {
 
 static off_t _db_readptr(DB * db, off_t offset)
 {
-    return 0;
+    /* retrieve stored chain pointer starting at offset; returns zero if the pointer does not exist */
+    // find the requested offset
+    if (lseek(db->idxfd, offset, SEEK_SET) == -1) {
+        err_dump("_db_readptr: unable to find offset");
+    }
+    // read contents of hash chain into buffer and null terminate
+    char asciiptr[PTR_SZ + 1];
+    if (read(db->idxfd, asciiptr, PTR_SZ) != PTR_SZ) {
+        err_dump("_db_readptr: error retrieving pointer from file");
+    }
+    asciiptr[PTR_SZ] = 0;
+
+    // return result as long
+    return atol(asciiptr);
 }
 
 /* allocation of DB structure and its buffers */
