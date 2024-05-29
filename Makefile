@@ -14,6 +14,6 @@ test: db
 
 clean:
 	rm -rf build/*
-	rm *.dat *.idx
+	rm -rf *.dat *.idx
 
 .PHONY: all clean

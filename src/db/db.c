@@ -4,10 +4,12 @@
 #include <fcntl.h>
 #include <stdarg.h>
 #include <errno.h>
+#include <sys/uio.h>
 
 #define PTR_SZ 7        /* size of ptr field in hash chain */
 #define NHASH_DEF 137   /* default hash table size, remember it is static hashing */
 #define HASH_OFF PTR_SZ  /* size of ptr field in hash chain */
+#define NEWLINE '\n'    /* newline char */
 
 typedef unsigned long DBHASH;   // hash values
 
@@ -22,6 +24,8 @@ typedef struct DB {
     off_t idxoff;   // offset for current record in hash table
     off_t chainoff; // offset of hash chain for this index record
     off_t ptroff;   // chain ptr offset pointing to this idx record
+    off_t datoff;   // offset of data record
+    size_t datlen;  // size of data record
     DBHASH nhash;   // current hash table size
 } DB;
 
@@ -30,6 +34,9 @@ static void _db_free(DB *);
 static int _db_find_and_lock(DB *, const char *, int);
 static off_t _db_readptr(DB *, off_t);
 static DBHASH _db_hash(DB *, const char *);
+static void _db_writedat(DB *, const char *, off_t, int);
+static void _db_writeidx(DB *, const char *, off_t, int, off_t);
+static void _db_writeptr(DB *, off_t, off_t);
 
 // "..." for optional permissions to use when creating the db
 DBHANDLE db_open(const char* pathname, int oflag, ...)
@@ -183,10 +190,61 @@ int db_store(DBHANDLE h, const char *key, const char *data, int flag) {
         off_t ptrval = _db_readptr(db, db->chainoff);
 
         // TODO: reuse a free record if available
-        // TODO: for now, write the data in the hash-designated location
+        /* append new record to ends of index and data files 
+            we write the data *first* b/c if we wrote a key that had no data, the db would be in an inconsistent state
+            whereas an extra data record that nothing points to just wastes space
+        */
+        _db_writedat(db, data, 0, SEEK_END);
+        _db_writeidx(db, key, 0, SEEK_END, ptrval);
+        /* _db_writeidx sets db->idxoff, new record goes to front of chain */
+        _db_writeptr(db, db->chainoff, db->idxoff);
     }
 
-    return 0;
+    return OK;
+}
+
+static void _db_writedat(DB *db, const char *data, off_t offset, int whence) {
+    struct iovec iov[2];
+    static char newline = NEWLINE;
+
+    /* lock if appending */
+    if (whence == SEEK_END) {
+        int is_locked = writew_lock(db->datfd, 0, SEEK_SET, 0);
+        if (is_locked < 0) {
+            err_dump("_db_writedat: writew_lock error");
+        }
+    }
+
+    off_t datoff = lseek(db->datfd, offset, whence);
+    if (datoff == -1) { err_dump("_db_writedat: lseek error"); }
+    size_t datlen = strlen(data);
+
+    db->datoff = datoff;
+    db->datlen = datlen + 1;  // + 1 for newline
+
+    // write data first, then newline using separate io vecotr
+    iov[0].iov_base = (char *) data;
+    iov[0].iov_len = datlen;
+    iov[1].iov_base = &newline;
+    iov[1].iov_len = 1;
+
+    // write both vectors
+    int written = writev(db->datfd, &iov[0], 2);
+    if (written != db->datlen) { err_dump("_db_writedat: error when writing data record"); }
+
+    // unlock if appending
+    if (whence == SEEK_END) {
+        int unlocked = un_lock(db->datfd, 0, SEEK_SET, 0);
+        if (unlocked < 0) { err_dump("_db_writedat: error unlocking file"); }
+    }
+}
+
+static void _db_writeidx(DB * db, const char *key, off_t offset, int whence, off_t ptrvalue) {
+    return;
+}
+
+static void _db_writeptr(DB * db, off_t offset, off_t ptrvalue) {
+    return;
 }
 
 static void _db_free(DB *db) {
