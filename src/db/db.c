@@ -6,10 +6,15 @@
 #include <errno.h>
 #include <sys/uio.h>
 
-#define PTR_SZ 7        /* size of ptr field in hash chain */
-#define NHASH_DEF 137   /* default hash table size, remember it is static hashing */
-#define HASH_OFF PTR_SZ  /* size of ptr field in hash chain */
-#define NEWLINE '\n'    /* newline char */
+// page 755
+#define IDXLEN_SZ 4                 /* index record length (ASCII chars) */
+#define NEWLINE '\n'                /* newline char */
+#define SEP ':'
+
+#define PTR_SZ 7                    /* size of ptr field in hash chain */
+#define PTR_MAX 9999999             /* max file offset = 10 ** PTR_SZ - 1 */
+#define NHASH_DEF 137               /* default hash table size, remember it is static hashing */
+#define HASH_OFF PTR_SZ             /* size of ptr field in hash chain */
 
 typedef unsigned long DBHASH;   // hash values
 
@@ -20,6 +25,7 @@ typedef struct DB {
     char *name;     // db name
     char *idxbuf;   // index record buffer
     char *datbuf;   // data record buffer
+    off_t ptrval;    // contents of chain ptr in index record
     off_t hashoff;  // offset in index file of hash table
     off_t idxoff;   // offset for current record in hash table
     off_t chainoff; // offset of hash chain for this index record
@@ -222,7 +228,7 @@ static void _db_writedat(DB *db, const char *data, off_t offset, int whence) {
     db->datoff = datoff;
     db->datlen = datlen + 1;  // + 1 for newline
 
-    // write data first, then newline using separate io vecotr
+    // write data first, then newline using separate io vector
     iov[0].iov_base = (char *) data;
     iov[0].iov_len = datlen;
     iov[1].iov_base = &newline;
@@ -239,11 +245,51 @@ static void _db_writedat(DB *db, const char *data, off_t offset, int whence) {
     }
 }
 
-static void _db_writeidx(DB * db, const char *key, off_t offset, int whence, off_t ptrvalue) {
-    return;
+// pg. 772
+static void _db_writeidx(DB * db, const char *key, off_t offset, int whence, off_t ptrval) {
+    struct iovec payload[2];    // the data we need to write for this index record
+    char asciiptrlen[PTR_SZ + IDXLEN_SZ + 1];
+
+    // validate that the pointer points to an index entry we can write to, then write to state
+    if (ptrval < 0 || ptrval > PTR_MAX) { err_quit("_db_writeidx: invalid ptr: %d", ptrval); }
+    db->ptrval = ptrval;
+
+    // populate index buffer for this entry: key|offset|length
+    sprintf(db->idxbuf, "%s%c%lld%c%ld\n", key, SEP, (long long)db->datoff, SEP, (long)db->datlen);
+    int len = strlen(db->idxbuf);
+    if (len < IDXLEN_MIN || len > IDXLEN_MAX) { err_dump("_db_writeidx: invalid length"); }
+    // add pointer value and pointer length ensuring that fixed size is respected: chain_ptr|idx_len
+    // the two above give us the following: chain_ptr|idx_len|key|offset|length
+    sprintf(asciiptrlen, "%*lld%*d", PTR_SZ, (long long)ptrval, IDXLEN_SZ, len);
+
+    /* as elsewhere, ensure append is atomic (not necessary for overwrite) */
+    if (whence == SEEK_END) {
+        int locked = writew_lock(db->idxfd, ((db->nhash+1)*PTR_SZ)+1, SEEK_SET, 0);
+        if (locked < 0) { err_dump("_db_writeidx: writew_lock error"); }
+    }
+
+    /* determine where to put the index entry */
+    off_t idxoff = lseek(db->idxfd, offset, whence);
+    if (idxoff == -1) { err_dump("_db_writeidx: lseek error"); }
+    db->idxoff = idxoff;
+
+    /* write the payload */
+    payload[0].iov_base = asciiptrlen;
+    payload[0].iov_len = PTR_SZ + IDXLEN_SZ;
+    payload[1].iov_base = db->idxbuf;
+    payload[1].iov_len = len;
+
+    int written = writev(db->idxfd, &payload[0], 2);
+    if (written != PTR_SZ + IDXLEN_SZ + len) { err_dump("_db_writeidx: writev error of index record"); }
+
+    /* unlock */
+    if (whence == SEEK_END) {
+        int unlocked = un_lock(db->idxfd, ((db->nhash+1)*PTR_SZ)+1, SEEK_SET, 0);
+        if (unlocked < 0) { err_dump("_db_writeidx: unlock error"); }
+    }
 }
 
-static void _db_writeptr(DB * db, off_t offset, off_t ptrvalue) {
+static void _db_writeptr(DB * db, off_t offset, off_t ptrval) {
     return;
 }
 
