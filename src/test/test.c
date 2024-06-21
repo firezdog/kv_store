@@ -10,8 +10,9 @@ int main() {
         return -1; 
     }
 
-    db_store(db, "hello", "hello", DB_INSERT);
-    db_store(db, "goodbye", "goodbye", DB_INSERT);
+    db_store(db, "apple", "1", DB_INSERT);
+    db_store(db, "boy", "2", DB_INSERT);
+    db_store(db, "clover", "3", DB_INSERT);
     db_close(db);
     return 0;
 }
