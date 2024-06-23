@@ -1,0 +1,9 @@
+services:
+  db_dev_python:
+    build: .
+    image: db_project
+    container_name: db_project_dev_python
+    volumes:
+      - .:/home/app
+    command: bash
+    tty: true

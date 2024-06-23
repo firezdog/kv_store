@@ -1,10 +1,10 @@
 version: '3.8'
 
 services:
-  db_dev:
+  db_dev_c:
     build: .
     image: db_project
-    container_name: db_project_dev
+    container_name: db_project_dev_c
     volumes:
       - .:/home/app
     command: bash
