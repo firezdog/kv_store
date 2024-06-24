@@ -230,6 +230,7 @@ int db_store(DBHANDLE h, const char *key, const char *data, int flag)
         _db_writeptr(db, db->chainoff, db->idxoff);
     }
 
+    // TODO: need to unlock!
     return code;
 }
 
@@ -429,7 +430,7 @@ static int _db_find_and_lock(DB *db, const char *key, int is_lock)
     off_t offset = _db_readptr(db, db->ptroff);
     while (offset != 0) {
         off_t nextoffset = _db_readidx(db, offset);
-        if (strcmp(db->idxbuf, key) == 0) { break; } // found a match }
+        if (strcmp(db->idxbuf, key) == 0) { break; } // found a match
         db->ptroff = offset; // move to next record
         offset = nextoffset;
     }
