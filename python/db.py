@@ -23,8 +23,8 @@ class Database:
         # !! the overwrite flag is dangerous and exists only for testing
         if exists(dat_file) and exists(idx_file) and not overwrite:
             # open without truncating
-            self._idx_fd = open(idx_file, 'a+')
-            self._dat_fd = open(dat_file, 'a+')
+            self._idx_fd = open(idx_file, 'r+')
+            self._dat_fd = open(dat_file, 'r+')
         else:
             # create new file and initialize hash line / free list
             self._idx_fd = open(idx_file, 'w+')
@@ -91,9 +91,12 @@ class Database:
         raise ValueError('key not in database')
 
     def _get_hash_offset(self, key: str) -> int:
-        # key_hash = hash(key) % self._nhash
-        # TODO: for testing -- remove
-        key_hash = 5
+        # we cannot use hash() b/c it is not deterministic
+        result = 0
+        for i, c in enumerate(key):
+            result += ord(c) * (i + 1)
+
+        key_hash = result % self._nhash
         hash_offset = key_hash * self._PTR_SIZE + self._DB_HASHOFF
 
         return hash_offset
@@ -104,7 +107,7 @@ class Database:
 
 
 if __name__ == '__main__':
-    db = Database('example', overwrite=True)
+    db = Database('example', overwrite=False)
     db.insert('a', 'Anniston')
     db.insert('b', 'Bob')
     db.insert('c', 'Cary')
@@ -112,7 +115,7 @@ if __name__ == '__main__':
     print(f'b:{db.fetch('b')}')
     print(f'c:{db.fetch('c')}')
     try:
-        db.fetch('d')
+        print(db.fetch('d'))
     except ValueError:
         print('did not find `d` in database -- will insert and try again')
         db.insert('d', 'now here')
