@@ -1,6 +1,68 @@
 from io import TextIOWrapper
 from os.path import exists
-from fcntl import flock, LOCK_EX, LOCK_UN, lockf
+from fcntl import flock, LOCK_EX, LOCK_UN
+
+
+class DuplicateKeyError(Exception):
+    ...
+
+
+class IndexRecord:
+    key: str
+    ptr_value: int
+    data_offset: int
+    data_size: int
+    _idxlen: int
+    _PTR_SIZE: int
+
+    def __init__(self, key: str, ptr_value: int, data_offset: int, data_size: int, ptr_size: int, idxlen_size: int):
+        self.key = key
+        self.ptr_value = ptr_value
+        self.data_offset = data_offset
+        self.data_size = data_size
+
+        self._PTR_SIZE = ptr_size
+        self._IDXLEN_SIZE = idxlen_size
+
+        # index record is "record_length:key:data_offset:data_length\n"
+        self._idxlen = len(key) + 1 + len(str(data_offset)) + 1 + len(str(data_size)) + 1
+
+    @classmethod
+    def from_raw(cls, ptr_value: int, raw: str, ptr_size, idxlen_size):
+        key, offset, size = raw.strip().split(':')
+        return cls(
+            ptr_value=ptr_value,
+            key=key,
+            data_offset=int(offset),
+            data_size=int(size),
+            ptr_size=ptr_size,
+            idxlen_size=idxlen_size,
+        )
+
+    def to_raw(self):
+        return f'{self.ptr_value:>{f"{self._PTR_SIZE}"}}{self._idxlen:>{f"{self._IDXLEN_SIZE}"}}{self.key}:{self.data_offset}:{self.data_size}\n'
+
+    @classmethod
+    def from_hash_entry(cls, ptr_value: int, ptr_size, idxlen_size):
+        return cls(
+            key='',
+            ptr_value=ptr_value,
+            data_offset=0,
+            data_size=0,
+            ptr_size=ptr_size,
+            idxlen_size=idxlen_size,
+        )
+
+    @classmethod
+    def null(cls):
+        return cls(
+            key='',
+            ptr_value=0,
+            data_offset=0,
+            data_size=0,
+            ptr_size=0,
+            idxlen_size=0,
+        )
 
 
 class Database:
@@ -39,13 +101,18 @@ class Database:
             flock(self._idx_fd, LOCK_UN)
 
     def insert(self, key: str, value: str):
-        # TODO: note this flow assumes the key is not present!
         # TODO: locking
+        if not key:
+            raise ValueError('cannot store record for empty key')
+
+        # note sure if this is a hack, but first check whether the key is present
+        record = self._get_record(key)
+        if record.key:
+            raise IndexError('cannot insert a record that already exists')
+
         # get position of datafile end, then append data to data file
         data_offset = str(self._dat_fd.seek(0, 2))
         data_length = str(self._dat_fd.write(f'{value}\n'))
-        # index record is "record_length:key:data_offset:data_length\n"
-        index_length = len(key) + 1 + len(data_offset) + 1 + len(data_length) + 1
 
         # determine where in the hash table the key goes
         hash_offset = self._get_hash_offset(key=key)
@@ -55,15 +122,32 @@ class Database:
         ptr_value = int(self._idx_fd.read(self._PTR_SIZE))
 
         # 2. write index record as new head (points to old)
-        index_record = f'{ptr_value:>{f"{self._PTR_SIZE}"}}{index_length:>{f"{self._IDXLEN_SIZE}"}}{key}:{data_offset}:{data_length}\n'
+        # we need to determine where the record was inserted first so we can update the hash index below
         record_offset = f'{self._idx_fd.seek(0, 2):>{f"{self._PTR_SIZE}"}}'
-        self._idx_fd.write(index_record)
+        index_record = IndexRecord(
+            key=key,
+            ptr_value=ptr_value,
+            data_offset=data_offset,
+            data_size=data_length,
+            ptr_size=self._PTR_SIZE,
+            idxlen_size=self._IDXLEN_SIZE,
+        )
+        self._idx_fd.write(index_record.to_raw())
 
         # 3. update hash table entry to point to new index record
         self._idx_fd.seek(hash_offset)
         self._idx_fd.write(record_offset)
 
-    def fetch(self, target: str) -> str:
+    def fetch(self, key: str) -> str:
+        record = self._get_record(target=key)
+        if not record.key:
+            raise KeyError('key not in database')
+
+        self._dat_fd.seek(record.data_offset)
+        data = self._dat_fd.read(record.data_size).strip()
+        return data
+
+    def _get_record(self, target: str) -> IndexRecord:
         # TODO: locking
         # 1. determine the hash index offset for the key
         hash_offset = self._get_hash_offset(target)
@@ -72,23 +156,20 @@ class Database:
         self._idx_fd.seek(hash_offset)
         ptr_value = int(self._idx_fd.read(self._PTR_SIZE))
 
-        key, data_offset, data_size = '', 0, 0
-        while ptr_value != 0:
-            self._idx_fd.seek(ptr_value)
+        record = IndexRecord.from_hash_entry(ptr_value=ptr_value, ptr_size=self._PTR_SIZE, idxlen_size=self._IDXLEN_SIZE)
+        while record.ptr_value != 0:
+            self._idx_fd.seek(record.ptr_value)
             next_ptr_value = int(self._idx_fd.read(self._PTR_SIZE))
-            entry_size = int(self._idx_fd.read(self._IDXLEN_SIZE))
-            entry = self._idx_fd.read(entry_size)
-            key, data_offset, data_size = entry.strip().split(':')
-            if key == target:
-                # 3a. using the index entry for the key, read its value from the data file
-                self._dat_fd.seek(int(data_offset))
-                data = self._dat_fd.read(int(data_size)).strip()
-                return data
+            idxlen = int(self._idx_fd.read(self._IDXLEN_SIZE))
+            raw_record = self._idx_fd.read(idxlen)
+            record = IndexRecord.from_raw(ptr_value=next_ptr_value, raw=raw_record, ptr_size=self._PTR_SIZE, idxlen_size=self._IDXLEN_SIZE)
+            if record.key == target:
+                return record
 
             ptr_value = next_ptr_value
 
         # 3b. if the key was not found, raise an error
-        raise ValueError('key not in database')
+        return IndexRecord.null()
 
     def _get_hash_offset(self, key: str) -> int:
         # we cannot use hash() b/c it is not deterministic
@@ -107,16 +188,19 @@ class Database:
 
 
 if __name__ == '__main__':
-    db = Database('example', overwrite=False)
-    db.insert('a', 'Anniston')
-    db.insert('b', 'Bob')
-    db.insert('c', 'Cary')
+    overwrite = False
+    db = Database('example', overwrite=overwrite)
+    if overwrite:
+        db.insert('a', 'Anniston')
+        db.insert('b', 'Bob')
+        db.insert('c', 'Cary')
+
     print(f'a:{db.fetch('a')}')
     print(f'b:{db.fetch('b')}')
     print(f'c:{db.fetch('c')}')
     try:
-        print(db.fetch('d'))
-    except ValueError:
-        print('did not find `d` in database -- will insert and try again')
+        print(f'd:{db.fetch('d')}')
+    except KeyError:
+        print('did not find "d" in database -- will insert and try again')
         db.insert('d', 'now here')
         print(f'd:{db.fetch('d')}')
