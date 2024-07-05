@@ -9,8 +9,15 @@ from db import Database
 @mock.patch('db.exists', return_value=False)
 @mock.patch('db.flock')
 class TestDB(unittest.TestCase):
+    def test_insert_and_fetch_without_hash_chaining(self, *args, **kwargs):
+        db = Database('test')
+        db.insert('hello', 'world')
+        db.insert('1', '2')
+        self.assertEqual(db.fetch('hello'), 'world')
+        self.assertEqual(db.fetch('1'), '2')
+
     @mock.patch.object(Database, '_get_hash_offset', return_value=42)
-    def test_insert_and_fetch(self, *args, **kwargs):
+    def test_insert_and_fetch_with_hash_chaining(self, *args, **kwargs):
         db = Database('test')
         db.insert('hello', 'world')
         db.insert('1', '2')
