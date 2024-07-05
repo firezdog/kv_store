@@ -3,17 +3,15 @@ from os.path import exists
 from fcntl import flock, LOCK_EX, LOCK_UN
 
 
-class DuplicateKeyError(Exception):
-    ...
-
-
 class IndexRecord:
     key: str
     ptr_value: int
     data_offset: int
     data_size: int
     _idxlen: int
+
     _PTR_SIZE: int
+    _IDXLEN_SIZE: int
 
     def __init__(self, key: str, ptr_value: int, data_offset: int, data_size: int, ptr_size: int, idxlen_size: int):
         self.key = key
@@ -102,8 +100,8 @@ class Database:
 
     def insert(self, key: str, value: str):
         # TODO: locking
-        if not key:
-            raise ValueError('cannot store record for empty key')
+        if not key or not value:
+            raise ValueError('cannot store record for empty key / value')
 
         # note sure if this is a hack, but first check whether the key is present
         record = self._get_record(key)
@@ -111,8 +109,8 @@ class Database:
             raise IndexError('cannot insert a record that already exists')
 
         # get position of datafile end, then append data to data file
-        data_offset = str(self._dat_fd.seek(0, 2))
-        data_length = str(self._dat_fd.write(f'{value}\n'))
+        data_offset = self._dat_fd.seek(0, 2)
+        data_length = self._dat_fd.write(f'{value}\n')
 
         # determine where in the hash table the key goes
         hash_offset = self._get_hash_offset(key=key)
@@ -156,19 +154,28 @@ class Database:
         self._idx_fd.seek(hash_offset)
         ptr_value = int(self._idx_fd.read(self._PTR_SIZE))
 
-        record = IndexRecord.from_hash_entry(ptr_value=ptr_value, ptr_size=self._PTR_SIZE, idxlen_size=self._IDXLEN_SIZE)
+        record = IndexRecord.from_hash_entry(
+            ptr_value=ptr_value,
+            ptr_size=self._PTR_SIZE,
+            idxlen_size=self._IDXLEN_SIZE,
+        )
         while record.ptr_value != 0:
             self._idx_fd.seek(record.ptr_value)
             next_ptr_value = int(self._idx_fd.read(self._PTR_SIZE))
             idxlen = int(self._idx_fd.read(self._IDXLEN_SIZE))
             raw_record = self._idx_fd.read(idxlen)
-            record = IndexRecord.from_raw(ptr_value=next_ptr_value, raw=raw_record, ptr_size=self._PTR_SIZE, idxlen_size=self._IDXLEN_SIZE)
+            record = IndexRecord.from_raw(
+                ptr_value=next_ptr_value,
+                raw=raw_record,
+                ptr_size=self._PTR_SIZE,
+                idxlen_size=self._IDXLEN_SIZE,
+            )
             if record.key == target:
                 return record
 
             ptr_value = next_ptr_value
 
-        # 3b. if the key was not found, raise an error
+        # 3b. if the key was not found, return sentinel record
         return IndexRecord.null()
 
     def _get_hash_offset(self, key: str) -> int:
@@ -185,22 +192,3 @@ class Database:
     def __del__(self):
         self._idx_fd.close()
         self._dat_fd.close()
-
-
-if __name__ == '__main__':
-    overwrite = False
-    db = Database('example', overwrite=overwrite)
-    if overwrite:
-        db.insert('a', 'Anniston')
-        db.insert('b', 'Bob')
-        db.insert('c', 'Cary')
-
-    print(f'a:{db.fetch('a')}')
-    print(f'b:{db.fetch('b')}')
-    print(f'c:{db.fetch('c')}')
-    try:
-        print(f'd:{db.fetch('d')}')
-    except KeyError:
-        print('did not find "d" in database -- will insert and try again')
-        db.insert('d', 'now here')
-        print(f'd:{db.fetch('d')}')
