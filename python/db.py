@@ -67,11 +67,9 @@ class Database:
             key=key,
             ptr_value=ptr_value,
             data_offset=data_offset,
-            data_size=data_length,
-            ptr_size=settings.POINTER_SIZE,
-            idxlen_size=settings.IDXLEN_SIZE,
+            data_size=data_length
         )
-        self._idx_fd.write(index_record.to_raw())
+        self._idx_fd.write(str(index_record))
 
         # 3. update hash table entry to point to new index record
         self._idx_fd.seek(hash_offset)
@@ -92,32 +90,31 @@ class Database:
         hash_offset = self._get_hash_offset(target)
 
         # 2. read through each entry in the hash chain until the key is found
+        prev_ptr_value = -1
         self._idx_fd.seek(hash_offset)
         ptr_value = int(self._idx_fd.read(settings.POINTER_SIZE))
+        next_ptr_value = -1
 
-        record = IndexRecord.from_hash_entry(
-            ptr_value=ptr_value,
-            ptr_size=settings.POINTER_SIZE,
-            idxlen_size=settings.IDXLEN_SIZE,
-        )
-        while record.ptr_value != 0:
-            self._idx_fd.seek(record.ptr_value)
+        while ptr_value != 0:
+            self._idx_fd.seek(ptr_value)
             next_ptr_value = int(self._idx_fd.read(settings.POINTER_SIZE))
             idxlen = int(self._idx_fd.read(settings.IDXLEN_SIZE))
-            raw_record = self._idx_fd.read(idxlen)
-            record = IndexRecord.from_raw(
-                ptr_value=next_ptr_value,
-                raw=raw_record,
-                ptr_size=settings.POINTER_SIZE,
-                idxlen_size=settings.IDXLEN_SIZE,
-            )
-            if record.key == target:
-                return record
+            entry = self._idx_fd.read(idxlen)
+            key, data_offset, data_size = entry.strip().split(':')
+            if key == target:
+                return IndexRecord(
+                    ptr_value=next_ptr_value,
+                    prev_ptr_value=prev_ptr_value,
+                    key=key,
+                    data_offset=int(data_offset),
+                    data_size=int(data_size),
+                )
 
+            prev_ptr_value = ptr_value
             ptr_value = next_ptr_value
 
         # 3b. if the key was not found, return sentinel record
-        return IndexRecord.null()
+        return IndexRecord(ptr_value=0)
 
     def _get_hash_offset(self, key: str) -> int:
         # we cannot use hash() b/c it is not deterministic
