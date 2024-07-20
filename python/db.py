@@ -1,6 +1,5 @@
 from io import TextIOWrapper
 from os.path import exists
-from fcntl import flock, LOCK_EX, LOCK_UN
 
 
 from record import IndexRecord
@@ -31,13 +30,19 @@ class Database:
             self._idx_fd = open(idx_file, 'w+')
             self._dat_fd = open(dat_file, 'w+')
 
-            # lock while we initialize the first line of the index file -- exclusive as no operations can proceed before init
-            flock(self._idx_fd, LOCK_EX)
             # write 1 + nhash hash entries (one more for the free list) and newline
             self._idx_fd.write(''.join([f'{0:>{f"{settings.POINTER_SIZE}"}}' for i in range(self._nhash + 1)]))
             self._idx_fd.write('\n')
-            # unlock
-            flock(self._idx_fd, LOCK_UN)
+
+    def delete(self, key):
+        # find record to delete
+        delendum = self._get_record(key)
+        if not delendum.key:
+            raise KeyError(f'{key=} does not exist in the database')
+
+        # write the record's next pointer value to the pointer value of the previous record
+        self._idx_fd.seek(delendum.prev_ptr_value)
+        self._idx_fd.write(f'{delendum.ptr_value:>{f"{settings.POINTER_SIZE}"}}')
 
     def insert(self, key: str, value: str):
         # TODO: locking
@@ -47,7 +52,7 @@ class Database:
         # note sure if this is a hack, but first check whether the key is present
         record = self._get_record(key)
         if record.key:
-            raise IndexError('cannot insert a record that already exists')
+            raise KeyError('cannot insert a record that already exists')
 
         # get position of datafile end, then append data to data file
         data_offset = self._dat_fd.seek(0, 2)
@@ -90,10 +95,10 @@ class Database:
         hash_offset = self._get_hash_offset(target)
 
         # 2. read through each entry in the hash chain until the key is found
-        prev_ptr_value = -1
+        prev_ptr_value = hash_offset
         self._idx_fd.seek(hash_offset)
         ptr_value = int(self._idx_fd.read(settings.POINTER_SIZE))
-        next_ptr_value = -1
+        next_ptr_value = 0
 
         while ptr_value != 0:
             self._idx_fd.seek(ptr_value)
@@ -104,6 +109,7 @@ class Database:
             if key == target:
                 return IndexRecord(
                     ptr_value=next_ptr_value,
+                    position=ptr_value,
                     prev_ptr_value=prev_ptr_value,
                     key=key,
                     data_offset=int(data_offset),

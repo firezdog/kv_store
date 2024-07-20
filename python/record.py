@@ -7,15 +7,17 @@ class IndexRecord:
     ptr_value: int
     data_offset: int
     data_size: int
+    position: int
 
     _record: str
 
-    def __init__(self, ptr_value: int, prev_ptr_value=0, key='', data_offset=0, data_size=0):
+    def __init__(self, ptr_value: int, prev_ptr_value=0, position=0, key='', data_offset=0, data_size=0):
         self.prev_ptr_value = prev_ptr_value
         self.ptr_value = ptr_value
         self.key = key
         self.data_offset = data_offset
         self.data_size = data_size
+        self.position = position
 
         main_record = f'{self.key}:{self.data_offset}:{self.data_size}\n'
         idxlen = len(main_record)
